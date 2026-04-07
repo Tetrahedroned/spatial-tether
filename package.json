@@ -1,24 +1,51 @@
 {
   "name": "spatial-tether",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "version": "0.1.0",
+  "description": "Deterministic proprioception engine for AI browser agents. Replaces visual inference with mathematical certainty.",
+  "main": "dist/gateway.js",
+  "bin": {
+    "spatial-tether": "dist/gateway.js"
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
   "scripts": {
     "test": "jest",
     "start": "ts-node src/gateway.ts",
-    "build": "tsc"
+    "build": "tsc --project tsconfig.build.json",
+    "prepublishOnly": "npm run build"
   },
   "jest": {
     "preset": "ts-jest",
     "testEnvironment": "node",
-    "testMatch": ["**/tests/**/*.test.ts"],
+    "testMatch": [
+      "**/tests/**/*.test.ts"
+    ],
     "transform": {
-      "^.+\\.tsx?$": ["ts-jest", { "tsconfig": "tsconfig.json" }]
+      "^.+\\.tsx?$": [
+        "ts-jest",
+        {
+          "tsconfig": "tsconfig.json"
+        }
+      ]
     }
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "mcp",
+    "ai",
+    "browser-automation",
+    "ocr",
+    "web-agent",
+    "playwright",
+    "layout"
+  ],
+  "author": "Tetrahedroned",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tetrahedroned/spatial-tether.git"
+  },
   "type": "commonjs",
   "devDependencies": {
     "@types/jest": "^30.0.0",
