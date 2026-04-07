@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "spatial-tether": {
+      "command": "npx",
+      "args": ["ts-node", "/home/tetra/spatial-tether/src/gateway.ts"],
+      "env": {}
+    }
+  }
+}
