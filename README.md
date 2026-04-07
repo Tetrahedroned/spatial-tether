@@ -75,9 +75,11 @@ The Star button scores 0.250 because it lives inside a dense toolbar with many a
 ## Install
 
 ```bash
-npm install
+npm install -g spatial-tether
 npx playwright install chromium
 ```
+
+Playwright's Chromium binaries are not bundled in the package to keep it lightweight. They must be installed separately.
 
 ## Usage
 
@@ -88,11 +90,13 @@ Add to your MCP client config (e.g. `mcp-config.json` for Claude Desktop):
   "mcpServers": {
     "spatial-tether": {
       "command": "npx",
-      "args": ["ts-node", "/path/to/spatial-tether/src/gateway.ts"]
+      "args": ["-y", "spatial-tether"]
     }
   }
 }
 ```
+
+No local clone required.
 
 The server exposes one tool: `browse_spatially`. Call it via JSON-RPC:
 
