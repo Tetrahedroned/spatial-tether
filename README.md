@@ -172,7 +172,7 @@ For AI training data generation, the SSM format packages spatial truth, semantic
 - [x] Button group detection -- boost gravity for elements inside nav/toolbar
 - [x] Timeout handling for pages that block headless browsers
 - [x] Viewport scrolling -- full-page capture in viewport-height increments
-- [ ] Form field coordinate mapping
+- [x] Form field coordinate mapping
 
 ---
 
