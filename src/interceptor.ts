@@ -16,7 +16,14 @@ export interface RawAtom {
   disabled?: boolean;       // true → atom present but gravity=0, interactive=false
   ariaLabel?: string | null;
   titleAttr?: string | null;
-  inputType?: string | null; // type attribute for <input> and <button>
+  inputType?: string | null; // type attribute for <input>/<button>; "textarea"/"select" for those tags
+  // Form field atoms (isField=true)
+  isField?: boolean;
+  placeholder?: string | null;
+  fieldName?: string | null;
+  fieldId?: string | null;
+  fieldValue?: string | null;
+  required?: boolean;
   css: {
     fontFamily: string;
     fontSize: number;       // px
@@ -234,6 +241,85 @@ export async function intercept(
               letterSpacing,
               wordSpacing,
               textTransform,
+              fontWeight: cs.fontWeight,
+              fontStyle: cs.fontStyle,
+            },
+          });
+        });
+
+        // ── Form field pass ────────────────────────────────────────────────
+        // Capture input (non-hidden), textarea, select as single-atom elements.
+        document.querySelectorAll<HTMLElement>(
+          "input:not([type='hidden']), textarea, select"
+        ).forEach((el) => {
+          if (isAriaHidden(el)) return;
+
+          const rect = el.getBoundingClientRect();
+          if (rect.width === 0 || rect.height === 0) return;
+          if (rect.top < 0 || rect.top >= viewportH) return;
+
+          const cs = window.getComputedStyle(el);
+          const position = cs.position;
+          if (scrollOffset > 0 && (position === "fixed" || position === "sticky")) return;
+
+          const tag = el.tagName.toUpperCase();
+          const parent = el.parentElement;
+          const grandparent = parent?.parentElement ?? null;
+
+          const inputEl = el as HTMLInputElement;
+          const fieldInputType =
+            tag === "INPUT" ? inputEl.type : el.tagName.toLowerCase();
+
+          const placeholder = inputEl.placeholder || null;
+          const fieldName = el.getAttribute("name");
+          const fieldId = el.id || null;
+          const fieldValue =
+            (el as HTMLInputElement).value || null;
+
+          // Identifier text: prefer placeholder, then name, then id, then tag.
+          const identText = placeholder ?? fieldName ?? fieldId ?? el.tagName.toLowerCase();
+
+          const fontSize = parseFloat(cs.fontSize) || 16;
+          const lineHeightRaw = cs.lineHeight;
+          const lineHeight =
+            lineHeightRaw === "normal" ? fontSize * 1.2 : parseFloat(lineHeightRaw);
+
+          results.push({
+            text: identText,
+            tag: el.tagName.toLowerCase(),
+            ariaRole: el.getAttribute("role"),
+            containerGeom: {
+              x: rect.left,
+              y: rect.top,
+              w: rect.width,
+              h: rect.height,
+            },
+            scrollOffset,
+            isField: true,
+            parentTag: parent?.tagName.toLowerCase() ?? "",
+            parentRole: parent?.getAttribute("role") ?? null,
+            grandparentTag: grandparent?.tagName.toLowerCase() ?? null,
+            grandparentRole: grandparent?.getAttribute("role") ?? null,
+            siblingInteractiveCount: countInteractiveSiblings(parent, el),
+            ariaHidden: false,
+            disabled:
+              el.hasAttribute("disabled") ||
+              el.getAttribute("aria-disabled") === "true",
+            ariaLabel: el.getAttribute("aria-label"),
+            titleAttr: el.getAttribute("title"),
+            inputType: fieldInputType,
+            placeholder,
+            fieldName,
+            fieldId,
+            fieldValue,
+            required: (el as HTMLInputElement).required ?? false,
+            css: {
+              fontFamily: cs.fontFamily,
+              fontSize,
+              lineHeight,
+              letterSpacing: 0,
+              wordSpacing: 0,
+              textTransform: "none",
               fontWeight: cs.fontWeight,
               fontStyle: cs.fontStyle,
             },

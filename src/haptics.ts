@@ -93,6 +93,9 @@ const PENALTY_ROLES = new Set(["toolbar", "navigation", "menubar"]);
  * to the grandparent before deciding.
  */
 function isPenaltyActive(el: RawAtom): boolean {
+  // Form fields are always exempt — they live in forms by definition.
+  if (el.isField === true) return false;
+
   const parentTag = el.parentTag ?? "";
   const parentRole = el.parentRole ?? null;
   const grandparentTag = el.grandparentTag ?? "";
@@ -250,6 +253,12 @@ export function buildGravityMap(
         : base;
 
       score = applyGravityFloor(el, score);
+
+      // Required form fields get a 1.2× significance multiplier.
+      if (el.required === true) {
+        score = score * 1.2;
+      }
+
       score = Math.min(1.0, Math.max(0.0, parseFloat(score.toFixed(4))));
     }
 

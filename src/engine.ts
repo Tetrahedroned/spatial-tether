@@ -9,6 +9,14 @@ export interface WordAtom {
   ariaRole: string | null;
   elementIndex: number; // which source element this word belongs to
   disabled?: boolean;   // mirrors RawAtom.disabled for downstream SSM population
+  // Form field atoms only:
+  isField?: boolean;
+  inputType?: string | null;
+  placeholder?: string | null;
+  fieldName?: string | null;
+  fieldId?: string | null;
+  fieldValue?: string | null;
+  required?: boolean;
 }
 
 /**
@@ -32,6 +40,41 @@ export function layoutAtoms(rawAtoms: RawAtom[]): WordAtom[] {
     // Defense-in-depth: primary filter is in interceptor browser code, but
     // ariaHidden atoms passed directly (e.g. in tests) must also be excluded.
     if (el.ariaHidden === true) continue;
+
+    // Form fields: single-atom elements — no word-splitting.
+    if (el.isField === true) {
+      // Hidden inputs produce no atom (selector excludes them in production;
+      // this guard makes the unit-test path safe too).
+      if (el.inputType === "hidden") continue;
+
+      const absX = el.containerGeom.x;
+      const absY = el.containerGeom.y + (el.scrollOffset ?? 0);
+      const fieldKey = el.fieldId ?? el.fieldName ?? el.tag;
+      const slug = slugify(fieldKey, atomCounter);
+      result.push({
+        id: slug,
+        text: el.text,
+        geom: {
+          x: Math.round(absX * 100) / 100,
+          y: Math.round(absY * 100) / 100,
+          w: Math.round(el.containerGeom.w * 100) / 100,
+          h: Math.round(el.containerGeom.h * 100) / 100,
+        },
+        sourceTag: el.tag,
+        ariaRole: el.ariaRole,
+        elementIndex: ei,
+        disabled: el.disabled ?? false,
+        isField: true,
+        inputType: el.inputType ?? null,
+        placeholder: el.placeholder ?? null,
+        fieldName: el.fieldName ?? null,
+        fieldId: el.fieldId ?? null,
+        fieldValue: el.fieldValue ?? null,
+        required: el.required ?? false,
+      });
+      atomCounter++;
+      continue;
+    }
 
     const { css, containerGeom, text, tag, ariaRole } = el;
 

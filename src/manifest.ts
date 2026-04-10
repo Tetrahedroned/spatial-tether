@@ -9,6 +9,7 @@ export type AtomRole =
   | "content"
   | "input"
   | "image"
+  | "field"
   | "unknown";
 
 export type AtomIntent =
@@ -17,14 +18,32 @@ export type AtomIntent =
   | "title"
   | "content"
   | "form"
-  | "unknown";
+  | "unknown"
+  // Form field intents:
+  | "search"
+  | "email"
+  | "password"
+  | "text"
+  | "select"
+  | "multiline";
 
 export interface SSMAtom {
   id: string;
   text: string;
   geom: { x: number; y: number; w: number; h: number };
   gravity: number;
-  meta: { role: AtomRole; intent: AtomIntent; interactive: boolean };
+  meta: {
+    role: AtomRole;
+    intent: AtomIntent;
+    interactive: boolean;
+    // Present only for role="field" atoms:
+    inputType?: string | null;
+    placeholder?: string | null;
+    name?: string | null;
+    fieldId?: string | null;
+    value?: string | null;
+    required?: boolean;
+  };
 }
 
 export interface SSMError {
@@ -88,12 +107,13 @@ export function buildTetherId(
   return crypto.createHash("sha256").update(input).digest("hex").slice(0, 16);
 }
 
-// Specificity order: button > link > heading/input > content/image > unknown.
+// Specificity order: button > link > heading/input/field > content/image > unknown.
 const ROLE_SPECIFICITY: Record<AtomRole, number> = {
   button:  4,
   link:    3,
   heading: 2,
   input:   2,
+  field:   2,
   content: 1,
   image:   1,
   unknown: 0,
@@ -128,6 +148,25 @@ function deduplicateSSMAtoms(atoms: SSMAtom[]): SSMAtom[] {
   return atoms.filter((a) => winnerSet.has(a));
 }
 
+/**
+ * Derive intent for form field atoms from inputType, name, and placeholder heuristics.
+ * Priority: inputType > name keyword > placeholder keyword > tag-based > "text" fallback.
+ */
+function inferFieldIntent(
+  inputType: string | null,
+  name: string | null,
+  placeholder: string | null
+): AtomIntent {
+  const normName = (name ?? "").toLowerCase();
+  const normPh   = (placeholder ?? "").toLowerCase();
+  if (inputType === "search"   || normName.includes("search")   || normPh.includes("search"))   return "search";
+  if (inputType === "email"    || normName.includes("email")    || normPh.includes("email"))     return "email";
+  if (inputType === "password" || normName.includes("password") || normPh.includes("password"))  return "password";
+  if (inputType === "textarea")  return "multiline";
+  if (inputType === "select")    return "select";
+  return "text";
+}
+
 export function buildErrorSSM(
   url: string,
   viewport: { w: number; h: number },
@@ -156,14 +195,41 @@ export function buildSSM(
   const tetherId = buildTetherId(url, viewport, now);
 
   const atoms: SSMAtom[] = wordAtoms.map((wa) => {
-    const { role, intent } = inferMeta(wa.sourceTag, wa.ariaRole);
     const isDisabled = wa.disabled === true;
+    const gravity = isDisabled ? 0.0 : (gravityMap.get(wa.elementIndex) ?? 0);
+
+    if (wa.isField) {
+      const intent = inferFieldIntent(
+        wa.inputType ?? null,
+        wa.fieldName ?? null,
+        wa.placeholder ?? null
+      );
+      return {
+        id: wa.id,
+        text: wa.text,
+        geom: wa.geom,
+        gravity,
+        meta: {
+          role: "field" as AtomRole,
+          intent,
+          interactive: !isDisabled,
+          inputType: wa.inputType ?? null,
+          placeholder: wa.placeholder ?? null,
+          name: wa.fieldName ?? null,
+          fieldId: wa.fieldId ?? null,
+          value: wa.fieldValue ?? null,
+          required: wa.required ?? false,
+        },
+      };
+    }
+
+    const { role, intent } = inferMeta(wa.sourceTag, wa.ariaRole);
     return {
       id: wa.id,
       text: wa.text,
       geom: wa.geom,
       // buildGravityMap already returns 0.0 for disabled elements, but be explicit.
-      gravity: isDisabled ? 0.0 : (gravityMap.get(wa.elementIndex) ?? 0),
+      gravity,
       meta: { role, intent, interactive: !isDisabled },
     };
   });

@@ -59,6 +59,12 @@ function makeFullAtom(
       | "ariaLabel"
       | "titleAttr"
       | "inputType"
+      | "isField"
+      | "placeholder"
+      | "fieldName"
+      | "fieldId"
+      | "fieldValue"
+      | "required"
     >
   > = {}
 ): RawAtom {
@@ -642,5 +648,148 @@ describe("button group detection", () => {
     // With collision: effective sibCount=8 → gradient 0.70 → larger penalty
     const scoreWith = buildGravityMap([toolbarBtn], vp, wordAtoms, [fakeCollision]).get(0)!;
     expect(scoreWith).toBeLessThanOrEqual(scoreWithout);
+  });
+});
+
+// ─── form field coordinate mapping ───────────────────────────────────────────
+
+/**
+ * Create a RawAtom representing a form field (input/textarea/select).
+ * Defaults: parentTag="form", inputType derived from tag, all meta optional.
+ */
+function makeFieldAtom(
+  tag: string,
+  geom: { x: number; y: number; w: number; h: number },
+  extra: Partial<
+    Pick<
+      RawAtom,
+      | "inputType"
+      | "placeholder"
+      | "fieldName"
+      | "fieldId"
+      | "fieldValue"
+      | "required"
+      | "disabled"
+      | "parentTag"
+      | "parentRole"
+      | "grandparentTag"
+      | "grandparentRole"
+      | "siblingInteractiveCount"
+    >
+  > = {}
+): RawAtom {
+  const defaultInputType = tag === "input" ? "text" : tag;
+  const identifier =
+    extra.placeholder ?? extra.fieldName ?? extra.fieldId ?? tag;
+  return {
+    ...makeAtom(identifier, geom),
+    tag,
+    ariaRole: null,
+    isField: true,
+    parentTag: extra.parentTag ?? "form",
+    parentRole: extra.parentRole ?? null,
+    grandparentTag: extra.grandparentTag ?? "main",
+    grandparentRole: extra.grandparentRole ?? null,
+    siblingInteractiveCount: extra.siblingInteractiveCount ?? 0,
+    ariaHidden: false,
+    disabled: extra.disabled ?? false,
+    ariaLabel: null,
+    titleAttr: null,
+    inputType: extra.inputType ?? defaultInputType,
+    placeholder: extra.placeholder ?? null,
+    fieldName: extra.fieldName ?? null,
+    fieldId: extra.fieldId ?? null,
+    fieldValue: extra.fieldValue ?? null,
+    required: extra.required ?? false,
+  };
+}
+
+describe("form field coordinate mapping", () => {
+  const vp = { w: 1280, h: 800 };
+  const fieldGeom = { x: 100, y: 200, w: 300, h: 40 };
+
+  // Test 1: text input produces one atom, role=field, intent=text
+  it("text input produces one field atom with role=field and intent=text", () => {
+    const field = makeFieldAtom("input", fieldGeom, { inputType: "text" });
+    const wordAtoms = layoutAtoms([field]);
+    expect(wordAtoms).toHaveLength(1);
+
+    const gMap = buildGravityMap([field], vp);
+    const ssm  = buildSSM("https://example.com", vp, wordAtoms, gMap, []);
+    expect(ssm.atoms).toHaveLength(1);
+    expect(ssm.atoms[0].meta.role).toBe("field");
+    expect(ssm.atoms[0].meta.intent).toBe("text");
+  });
+
+  // Test 2: password input — intent=password, interactive=true
+  it("password input has intent=password and is interactive", () => {
+    const field = makeFieldAtom("input", fieldGeom, { inputType: "password" });
+    const wordAtoms = layoutAtoms([field]);
+    const gMap  = buildGravityMap([field], vp);
+    const ssm   = buildSSM("https://example.com", vp, wordAtoms, gMap, []);
+    expect(ssm.atoms[0].meta.intent).toBe("password");
+    expect(ssm.atoms[0].meta.interactive).toBe(true);
+  });
+
+  // Test 3: disabled input — gravity=0.0, interactive=false
+  it("disabled input has gravity 0.0 and interactive: false", () => {
+    const field = makeFieldAtom("input", fieldGeom, { disabled: true });
+    const wordAtoms = layoutAtoms([field]);
+    const gMap  = buildGravityMap([field], vp);
+    const ssm   = buildSSM("https://example.com", vp, wordAtoms, gMap, []);
+    expect(ssm.atoms).toHaveLength(1);
+    expect(ssm.atoms[0].gravity).toBe(0.0);
+    expect(ssm.atoms[0].meta.interactive).toBe(false);
+  });
+
+  // Test 4: select element — role=field, intent=select
+  it("select element has role=field and intent=select", () => {
+    const field = makeFieldAtom("select", fieldGeom);
+    const wordAtoms = layoutAtoms([field]);
+    const gMap  = buildGravityMap([field], vp);
+    const ssm   = buildSSM("https://example.com", vp, wordAtoms, gMap, []);
+    expect(ssm.atoms[0].meta.role).toBe("field");
+    expect(ssm.atoms[0].meta.intent).toBe("select");
+  });
+
+  // Test 5: textarea — role=field, intent=multiline
+  it("textarea has role=field and intent=multiline", () => {
+    const field = makeFieldAtom("textarea", fieldGeom);
+    const wordAtoms = layoutAtoms([field]);
+    const gMap  = buildGravityMap([field], vp);
+    const ssm   = buildSSM("https://example.com", vp, wordAtoms, gMap, []);
+    expect(ssm.atoms[0].meta.role).toBe("field");
+    expect(ssm.atoms[0].meta.intent).toBe("multiline");
+  });
+
+  // Test 6: required field — gravity gets 1.2× multiplier
+  it("required field gravity is higher than the same non-required field", () => {
+    const required    = makeFieldAtom("input", fieldGeom, { required: true });
+    const notRequired = makeFieldAtom("input", fieldGeom, { required: false });
+    const scoreReq    = buildGravityMap([required],    vp).get(0)!;
+    const scoreNoReq  = buildGravityMap([notRequired], vp).get(0)!;
+    // 1.2× multiplier: required score must be strictly higher (unless already at 1.0).
+    expect(scoreReq).toBeGreaterThanOrEqual(scoreNoReq * 1.2 - 0.001);
+    expect(scoreReq).toBeLessThanOrEqual(1.0);
+  });
+
+  // Test 7: hidden input — produces no atom
+  it("hidden input produces no atom", () => {
+    const hidden = makeFieldAtom("input", fieldGeom, { inputType: "hidden" });
+    const wordAtoms = layoutAtoms([hidden]);
+    expect(wordAtoms).toHaveLength(0);
+  });
+
+  // Test 8: pre-filled input — value captured in SSM atom meta
+  it("pre-filled input value is captured in SSM atom meta", () => {
+    const field = makeFieldAtom("input", fieldGeom, {
+      inputType: "email",
+      fieldValue: "user@example.com",
+      fieldName: "email",
+    });
+    const wordAtoms = layoutAtoms([field]);
+    const gMap  = buildGravityMap([field], vp);
+    const ssm   = buildSSM("https://example.com", vp, wordAtoms, gMap, []);
+    expect(ssm.atoms[0].meta.value).toBe("user@example.com");
   });
 });
