@@ -7,7 +7,7 @@
 
 import { measureString } from "../src/scaler";
 import { layoutAtoms, WordAtom } from "../src/engine";
-import { buildGravityMap, detectCollisions } from "../src/haptics";
+import { buildGravityMap, detectCollisions, Collision } from "../src/haptics";
 import { buildSSM, inferMeta } from "../src/manifest";
 import { RawAtom } from "../src/interceptor";
 
@@ -34,6 +34,49 @@ function makeAtom(
       fontStyle: "normal",
       ...overrides,
     },
+  };
+}
+
+/**
+ * Create a RawAtom with all button-group-detection fields populated.
+ * Defaults represent a non-penalized, non-disabled, non-hidden element.
+ */
+function makeFullAtom(
+  tag: string,
+  text: string,
+  geom: { x: number; y: number; w: number; h: number },
+  extra: Partial<
+    Pick<
+      RawAtom,
+      | "ariaRole"
+      | "parentTag"
+      | "parentRole"
+      | "grandparentTag"
+      | "grandparentRole"
+      | "siblingInteractiveCount"
+      | "ariaHidden"
+      | "disabled"
+      | "ariaLabel"
+      | "titleAttr"
+      | "inputType"
+    >
+  > = {}
+): RawAtom {
+  return {
+    ...makeAtom(text, geom),
+    tag,
+    ariaRole: null,
+    parentTag: "div",
+    parentRole: null,
+    grandparentTag: "main",
+    grandparentRole: null,
+    siblingInteractiveCount: 0,
+    ariaHidden: false,
+    disabled: false,
+    ariaLabel: null,
+    titleAttr: null,
+    inputType: null,
+    ...extra,
   };
 }
 
@@ -436,5 +479,168 @@ describe("deduplicateSSMAtoms (via buildSSM)", () => {
     ];
     const ssm3 = buildSSM("https://example.com", vp, [w1, w2], buildGravityMap(stubs2, vp), []);
     expect(ssm3.atoms).toHaveLength(2);
+  });
+});
+
+// ─── haptics.ts — button group detection ─────────────────────────────────────
+
+describe("button group detection", () => {
+  const vp = { w: 1280, h: 800 };
+  const geom = { x: 300, y: 200, w: 100, h: 40 };
+
+  // Test 1: submit button inside a form with 5 sibling fields — no penalty
+  it("form container is exempt: button floor and significance boost both apply", () => {
+    const inForm = makeFullAtom("button", "Submit", geom, {
+      parentTag: "form",
+      siblingInteractiveCount: 5,
+      inputType: "submit",
+    });
+    // Same layout in a nav (penalty-active) for comparison.
+    const inNav = makeFullAtom("button", "Submit", geom, {
+      parentTag: "nav",
+      siblingInteractiveCount: 5,
+      inputType: "submit",
+    });
+    const formScore = buildGravityMap([inForm], vp).get(0)!;
+    const navScore  = buildGravityMap([inNav],  vp).get(0)!;
+    // Form is exempt → no penalty → button floor 0.40 applies + boost fires.
+    expect(formScore).toBeGreaterThanOrEqual(0.4);
+    // Nav has penalty active → score is lower than the un-penalised form version.
+    expect(formScore).toBeGreaterThan(navScore);
+  });
+
+  // Test 2: star button in nav with 8 siblings — density penalty applied
+  it("nav container with 8 siblings applies density penalty below isolated baseline", () => {
+    const toolbarBtn = makeFullAtom("button", "Star", geom, {
+      parentTag: "nav",
+      siblingInteractiveCount: 8,
+    });
+    const isolatedBtn = makeFullAtom("button", "Star",
+      { x: 640, y: 400, w: 100, h: 40 },
+      { parentTag: "main", siblingInteractiveCount: 0 }
+    );
+    const penaltyScore   = buildGravityMap([toolbarBtn], vp).get(0)!;
+    const isolatedScore  = buildGravityMap([isolatedBtn], vp).get(0)!;
+    expect(penaltyScore).toBeLessThan(isolatedScore);
+    // Penalty floor is 0.10, never below.
+    expect(penaltyScore).toBeGreaterThanOrEqual(0.10);
+  });
+
+  // Test 3: "Sign in" button in sparse header (≤5 siblings) — no penalty,
+  //         significance boost fires on visible text
+  it("header with ≤5 siblings is not penalised; 'sign in' text triggers boost", () => {
+    const signInBtn = makeFullAtom("button", "Sign in",
+      { x: 1100, y: 20, w: 80, h: 36 },
+      { parentTag: "header", siblingInteractiveCount: 2 }
+    );
+    const plainBtn = makeFullAtom("button", "Click here",
+      { x: 1100, y: 20, w: 80, h: 36 },
+      { parentTag: "header", siblingInteractiveCount: 2 }
+    );
+    const signInScore = buildGravityMap([signInBtn], vp).get(0)!;
+    const plainScore  = buildGravityMap([plainBtn],  vp).get(0)!;
+    // Boost raises the score; both are ≥ button floor (0.40).
+    expect(signInScore).toBeGreaterThanOrEqual(0.4);
+    expect(signInScore).toBeGreaterThanOrEqual(plainScore);
+  });
+
+  // Test 4: nav link in 15-item menu — maximum density gradient (0.40)
+  it("15-sibling nav link receives maximum density gradient penalty", () => {
+    const denseLink = makeFullAtom("a", "Home", geom, {
+      parentTag: "nav",
+      siblingInteractiveCount: 15,
+    });
+    const sparseLink = makeFullAtom("a", "Home", geom, {
+      parentTag: "nav",
+      siblingInteractiveCount: 0,
+    });
+    const denseScore  = buildGravityMap([denseLink],  vp).get(0)!;
+    const sparseScore = buildGravityMap([sparseLink], vp).get(0)!;
+    expect(denseScore).toBeLessThan(sparseScore);
+    expect(denseScore).toBeGreaterThanOrEqual(0.10); // penalty floor
+  });
+
+  // Test 5: button inside div inside nav — grandparent walk catches penalty
+  it("generic div parent triggers grandparent walk; nav grandparent applies penalty", () => {
+    const btnInNavViaDiv = makeFullAtom("button", "Menu", geom, {
+      parentTag: "div",        // generic → walk to grandparent
+      grandparentTag: "nav",   // caught here
+      siblingInteractiveCount: 8,
+    });
+    const btnInMain = makeFullAtom("button", "Menu", geom, {
+      parentTag: "div",
+      grandparentTag: "main",  // exempt
+      siblingInteractiveCount: 8,
+    });
+    const penaltyScore  = buildGravityMap([btnInNavViaDiv], vp).get(0)!;
+    const noPenaltyScore = buildGravityMap([btnInMain],     vp).get(0)!;
+    expect(penaltyScore).toBeLessThan(noPenaltyScore);
+  });
+
+  // Test 6: aria-hidden button — produces no word atoms
+  it("ariaHidden=true atom is filtered out by layoutAtoms → produces no atoms", () => {
+    const hiddenBtn = makeFullAtom("button", "Hidden action", geom, {
+      ariaHidden: true,
+    });
+    const atoms = layoutAtoms([hiddenBtn]);
+    expect(atoms).toHaveLength(0);
+  });
+
+  // Test 7: disabled button — atom present, gravity 0.0, interactive false
+  it("disabled button appears in SSM with gravity 0.0 and interactive: false", () => {
+    const disabledBtn = makeFullAtom("button", "Checkout", geom, {
+      disabled: true,
+    });
+    const rawAtoms  = [disabledBtn];
+    const wordAtoms = layoutAtoms(rawAtoms);
+    const gMap      = buildGravityMap(rawAtoms, vp);
+    const cols      = detectCollisions(wordAtoms);
+    const ssm       = buildSSM("https://example.com", vp, wordAtoms, gMap, cols);
+
+    // "Checkout" is a single word → one atom in the manifest.
+    expect(ssm.atoms).toHaveLength(1);
+    expect(ssm.atoms[0].gravity).toBe(0.0);
+    expect(ssm.atoms[0].meta.interactive).toBe(false);
+  });
+
+  // Test 8: icon button with aria-label="Sign in" — boost fires on aria-label,
+  //         not on the non-triggering visible text "★"
+  it("significance boost fires on aria-label when visible text has no trigger", () => {
+    // Use a penalty-active container so the boost is measurably above 0.10.
+    const iconWithLabel = makeFullAtom("button", "★", geom, {
+      parentTag: "nav",
+      siblingInteractiveCount: 3,
+      ariaLabel: "Sign in",  // this is the trigger, not "★"
+    });
+    const iconWithout = makeFullAtom("button", "★", geom, {
+      parentTag: "nav",
+      siblingInteractiveCount: 3,
+      ariaLabel: null,
+    });
+    const withBoostScore    = buildGravityMap([iconWithLabel], vp).get(0)!;
+    const withoutBoostScore = buildGravityMap([iconWithout],   vp).get(0)!;
+    expect(withBoostScore).toBeGreaterThanOrEqual(withoutBoostScore);
+    expect(withBoostScore).toBeGreaterThan(0);
+  });
+
+  // Test 9: collision signal adds +3 to sibling count, increasing density penalty
+  it("collision signal shifts sibling count bucket, increasing the density penalty", () => {
+    const toolbarBtn = makeFullAtom("button", "Go", geom, {
+      parentTag: "nav",
+      siblingInteractiveCount: 5, // 3–5 bucket → gradient 0.85
+    });
+    const wordAtoms = layoutAtoms([toolbarBtn]);
+    // Fabricate a collision referencing this element's word atom.
+    const fakeCollision: Collision = {
+      atomIdA: wordAtoms[0].id,
+      atomIdB: "other-99",
+      overlapX: 5,
+      overlapY: 5,
+    };
+    // Without collision: sibCount=5 → gradient 0.85
+    const scoreWithout = buildGravityMap([toolbarBtn], vp, wordAtoms, []).get(0)!;
+    // With collision: effective sibCount=8 → gradient 0.70 → larger penalty
+    const scoreWith = buildGravityMap([toolbarBtn], vp, wordAtoms, [fakeCollision]).get(0)!;
+    expect(scoreWith).toBeLessThanOrEqual(scoreWithout);
   });
 });

@@ -6,6 +6,17 @@ export interface RawAtom {
   ariaRole: string | null;
   containerGeom: { x: number; y: number; w: number; h: number };
   scrollOffset?: number; // px scrolled from top when atom was captured
+  // Button group detection fields (optional for backwards compat with tests)
+  parentTag?: string;
+  parentRole?: string | null;
+  grandparentTag?: string | null;
+  grandparentRole?: string | null;
+  siblingInteractiveCount?: number;
+  ariaHidden?: boolean;     // true → element is filtered out (no atom produced)
+  disabled?: boolean;       // true → atom present but gravity=0, interactive=false
+  ariaLabel?: string | null;
+  titleAttr?: string | null;
+  inputType?: string | null; // type attribute for <input> and <button>
   css: {
     fontFamily: string;
     fontSize: number;       // px
@@ -100,12 +111,45 @@ export async function intercept(
           }
         }
 
+        // Walk up the DOM tree checking for aria-hidden=true on any ancestor.
+        function isAriaHidden(node: Element | null): boolean {
+          let n: Element | null = node;
+          while (n) {
+            if (n.getAttribute("aria-hidden") === "true") return true;
+            n = n.parentElement;
+          }
+          return false;
+        }
+
+        // Count direct interactive siblings within the same parent.
+        function countInteractiveSiblings(parent: Element | null, self: Element): number {
+          if (!parent) return 0;
+          const INTERACTIVE_TAGS = new Set(["BUTTON", "A", "INPUT", "SELECT", "TEXTAREA"]);
+          const INTERACTIVE_ROLES = new Set(["button", "link", "menuitem", "option", "tab"]);
+          return Array.from(parent.children).filter(
+            (child) =>
+              child !== self &&
+              (INTERACTIVE_TAGS.has(child.tagName) ||
+                INTERACTIVE_ROLES.has(child.getAttribute("role") ?? ""))
+          ).length;
+        }
+
         const results: Array<{
           text: string;
           tag: string;
           ariaRole: string | null;
           containerGeom: { x: number; y: number; w: number; h: number };
           scrollOffset: number;
+          parentTag: string;
+          parentRole: string | null;
+          grandparentTag: string | null;
+          grandparentRole: string | null;
+          siblingInteractiveCount: number;
+          ariaHidden: boolean;
+          disabled: boolean;
+          ariaLabel: string | null;
+          titleAttr: string | null;
+          inputType: string | null;
           css: {
             fontFamily: string;
             fontSize: number;
@@ -121,6 +165,9 @@ export async function intercept(
         document.querySelectorAll<HTMLElement>(LEAF_SELECTORS).forEach((el) => {
           const rawText = el.innerText?.trim();
           if (!rawText) return;
+
+          // Filter elements hidden from accessibility tree entirely.
+          if (isAriaHidden(el)) return;
 
           const rect = el.getBoundingClientRect();
           if (rect.width === 0 || rect.height === 0) return;
@@ -150,6 +197,10 @@ export async function intercept(
 
           const displayText = applyTextTransform(rawText, textTransform);
 
+          const parent = el.parentElement;
+          const grandparent = parent?.parentElement ?? null;
+          const tag = el.tagName.toUpperCase();
+
           results.push({
             text: displayText,
             tag: el.tagName.toLowerCase(),
@@ -161,6 +212,21 @@ export async function intercept(
               h: rect.height,
             },
             scrollOffset,
+            parentTag: parent?.tagName.toLowerCase() ?? "",
+            parentRole: parent?.getAttribute("role") ?? null,
+            grandparentTag: grandparent?.tagName.toLowerCase() ?? null,
+            grandparentRole: grandparent?.getAttribute("role") ?? null,
+            siblingInteractiveCount: countInteractiveSiblings(parent, el),
+            ariaHidden: false, // passed the isAriaHidden filter above
+            disabled:
+              el.hasAttribute("disabled") ||
+              el.getAttribute("aria-disabled") === "true",
+            ariaLabel: el.getAttribute("aria-label"),
+            titleAttr: el.getAttribute("title"),
+            inputType:
+              tag === "INPUT" || tag === "BUTTON"
+                ? (el as HTMLInputElement | HTMLButtonElement).type
+                : null,
             css: {
               fontFamily: cs.fontFamily,
               fontSize,

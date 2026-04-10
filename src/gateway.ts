@@ -29,8 +29,10 @@ async function runPipeline(
     }
 
     const wordAtoms = layoutAtoms(raw.atoms);
-    const gravityMap = buildGravityMap(raw.atoms, viewport);
+    // Collisions must be computed before gravity so the collision signal can
+    // adjust sibling counts in the density gradient (Layer 3).
     const collisions = detectCollisions(wordAtoms);
+    const gravityMap = buildGravityMap(raw.atoms, viewport, wordAtoms, collisions);
 
     return buildSSM(url, viewport, wordAtoms, gravityMap, collisions);
   } catch (err) {

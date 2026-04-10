@@ -8,6 +8,7 @@ export interface WordAtom {
   sourceTag: string;
   ariaRole: string | null;
   elementIndex: number; // which source element this word belongs to
+  disabled?: boolean;   // mirrors RawAtom.disabled for downstream SSM population
 }
 
 /**
@@ -27,6 +28,11 @@ export function layoutAtoms(rawAtoms: RawAtom[]): WordAtom[] {
 
   for (let ei = 0; ei < rawAtoms.length; ei++) {
     const el = rawAtoms[ei];
+
+    // Defense-in-depth: primary filter is in interceptor browser code, but
+    // ariaHidden atoms passed directly (e.g. in tests) must also be excluded.
+    if (el.ariaHidden === true) continue;
+
     const { css, containerGeom, text, tag, ariaRole } = el;
 
     // Split on whitespace; filter empty tokens.
@@ -90,6 +96,7 @@ export function layoutAtoms(rawAtoms: RawAtom[]): WordAtom[] {
         sourceTag: tag,
         ariaRole,
         elementIndex: ei,
+        disabled: el.disabled ?? false,
       });
 
       atomCounter++;

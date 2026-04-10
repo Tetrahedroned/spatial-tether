@@ -24,7 +24,7 @@ export interface SSMAtom {
   text: string;
   geom: { x: number; y: number; w: number; h: number };
   gravity: number;
-  meta: { role: AtomRole; intent: AtomIntent };
+  meta: { role: AtomRole; intent: AtomIntent; interactive: boolean };
 }
 
 export interface SSMError {
@@ -157,12 +157,14 @@ export function buildSSM(
 
   const atoms: SSMAtom[] = wordAtoms.map((wa) => {
     const { role, intent } = inferMeta(wa.sourceTag, wa.ariaRole);
+    const isDisabled = wa.disabled === true;
     return {
       id: wa.id,
       text: wa.text,
       geom: wa.geom,
-      gravity: gravityMap.get(wa.elementIndex) ?? 0,
-      meta: { role, intent },
+      // buildGravityMap already returns 0.0 for disabled elements, but be explicit.
+      gravity: isDisabled ? 0.0 : (gravityMap.get(wa.elementIndex) ?? 0),
+      meta: { role, intent, interactive: !isDisabled },
     };
   });
 
