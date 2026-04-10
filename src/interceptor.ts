@@ -157,6 +157,12 @@ export async function intercept(
           ariaLabel: string | null;
           titleAttr: string | null;
           inputType: string | null;
+          isField?: boolean;
+          placeholder?: string | null;
+          fieldName?: string | null;
+          fieldId?: string | null;
+          fieldValue?: string | null;
+          required?: boolean;
           css: {
             fontFamily: string;
             fontSize: number;

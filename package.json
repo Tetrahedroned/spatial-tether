@@ -14,7 +14,8 @@
     "test": "jest",
     "start": "ts-node src/gateway.ts",
     "build": "tsc --project tsconfig.build.json",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "benchmark": "ts-node benchmarks/run.ts"
   },
   "jest": {
     "preset": "ts-jest",
