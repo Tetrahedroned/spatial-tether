@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -5,28 +6,50 @@ import { intercept, closeBrowser } from "./interceptor";
 import { registerFonts } from "./scaler";
 import { layoutAtoms } from "./engine";
 import { buildGravityMap, detectCollisions } from "./haptics";
-import { buildSSM, SSM } from "./manifest";
+import { buildSSM, buildErrorSSM, SSM } from "./manifest";
 
 const VIEWPORT_DEFAULT = { w: 1280, h: 800 };
 
 /**
  * Run the full pipeline: intercept → scale → engine → haptics → manifest.
+ * On navigation timeout, returns a structured error SSM instead of throwing.
  */
 async function runPipeline(
   url: string,
-  viewport: { w: number; h: number }
+  viewport: { w: number; h: number },
+  timeoutMs: number
 ): Promise<SSM> {
-  const raw = await intercept(url, viewport);
+  const startMs = Date.now();
 
-  if (raw.fontUrls.length > 0) {
-    await registerFonts(raw.fontUrls);
+  try {
+    const raw = await intercept(url, viewport, timeoutMs);
+
+    if (raw.fontUrls.length > 0) {
+      await registerFonts(raw.fontUrls);
+    }
+
+    const wordAtoms = layoutAtoms(raw.atoms);
+    const gravityMap = buildGravityMap(raw.atoms, viewport);
+    const collisions = detectCollisions(wordAtoms);
+
+    return buildSSM(url, viewport, wordAtoms, gravityMap, collisions);
+  } catch (err) {
+    const elapsed_ms = Date.now() - startMs;
+    const isTimeout = err instanceof Error && err.name === "TimeoutError";
+
+    if (isTimeout) {
+      console.error(
+        `[spatial-tether] timeout: ${url} (${elapsed_ms}ms elapsed, limit ${timeoutMs}ms)`
+      );
+      return buildErrorSSM(url, viewport, {
+        code: "TIMEOUT",
+        message: `Page did not reach networkidle within ${timeoutMs}ms.`,
+        elapsed_ms,
+      });
+    }
+
+    throw err; // non-timeout errors still propagate
   }
-
-  const wordAtoms = layoutAtoms(raw.atoms);
-  const gravityMap = buildGravityMap(raw.atoms, viewport);
-  const collisions = detectCollisions(wordAtoms);
-
-  return buildSSM(url, viewport, wordAtoms, gravityMap, collisions);
 }
 
 const server = new McpServer({
@@ -51,14 +74,21 @@ server.tool(
       .positive()
       .optional()
       .describe("Viewport height in px (default 800)."),
+    timeout_ms: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Navigation timeout in ms (default 30000). On timeout the SSM error field is set instead of throwing."),
   },
-  async ({ url, viewport_w, viewport_h }) => {
+  async ({ url, viewport_w, viewport_h, timeout_ms }) => {
     const viewport = {
       w: viewport_w ?? VIEWPORT_DEFAULT.w,
       h: viewport_h ?? VIEWPORT_DEFAULT.h,
     };
+    const timeoutMs = timeout_ms ?? 30_000;
 
-    const ssm = await runPipeline(url, viewport);
+    const ssm = await runPipeline(url, viewport, timeoutMs);
 
     return {
       content: [

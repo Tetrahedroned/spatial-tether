@@ -27,6 +27,12 @@ export interface SSMAtom {
   meta: { role: AtomRole; intent: AtomIntent };
 }
 
+export interface SSMError {
+  code: string;     // e.g. "TIMEOUT"
+  message: string;
+  elapsed_ms: number;
+}
+
 export interface SSM {
   tether_id: string;
   url: string;
@@ -34,6 +40,7 @@ export interface SSM {
   atoms: SSMAtom[];
   collisions: Collision[];
   captured_at: string; // ISO timestamp
+  error?: SSMError;   // present only on failure; atoms/collisions will be empty
 }
 
 // HTML tag → (role, intent) mapping based purely on semantics / ARIA.
@@ -119,6 +126,23 @@ function deduplicateSSMAtoms(atoms: SSMAtom[]): SSMAtom[] {
   // Preserve original order: filter to only the winning atom for each key.
   const winnerSet = new Set(winners.values());
   return atoms.filter((a) => winnerSet.has(a));
+}
+
+export function buildErrorSSM(
+  url: string,
+  viewport: { w: number; h: number },
+  error: SSMError
+): SSM {
+  const now = new Date().toISOString();
+  return {
+    tether_id: buildTetherId(url, viewport, now),
+    url,
+    viewport,
+    atoms: [],
+    collisions: [],
+    captured_at: now,
+    error,
+  };
 }
 
 export function buildSSM(

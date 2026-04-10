@@ -46,7 +46,8 @@ export async function closeBrowser(): Promise<void> {
 
 export async function intercept(
   url: string,
-  viewport: { w: number; h: number } = { w: 1280, h: 800 }
+  viewport: { w: number; h: number } = { w: 1280, h: 800 },
+  timeoutMs: number = 30_000
 ): Promise<RawContext> {
   const ctx = await getContext();
   const page = await ctx.newPage();
@@ -65,7 +66,13 @@ export async function intercept(
     }
   });
 
-  await page.goto(url, { waitUntil: "networkidle" });
+  // Navigate; let any timeout error propagate to the caller after page cleanup.
+  try {
+    await page.goto(url, { waitUntil: "networkidle", timeout: timeoutMs });
+  } catch (err) {
+    try { await page.close(); } catch { /* ignore secondary error */ }
+    throw err;
+  }
 
   // Scroll the full page in viewport-height increments, capturing atoms at each
   // position. getBoundingClientRect() returns viewport-relative coordinates, so
