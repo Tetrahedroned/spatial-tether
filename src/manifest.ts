@@ -101,7 +101,12 @@ function deduplicateSSMAtoms(atoms: SSMAtom[]): SSMAtom[] {
   const winners = new Map<string, SSMAtom>();
 
   for (const atom of atoms) {
-    const key = `${atom.text}|${atom.geom.x}|${atom.geom.y}`;
+    // Round coordinates to the nearest pixel for the dedup key.
+    // This provides 1px tolerance for elements captured in overlapping
+    // viewport zones during multi-pass scroll capture.
+    const kx = Math.round(atom.geom.x);
+    const ky = Math.round(atom.geom.y);
+    const key = `${atom.text}|${kx}|${ky}`;
     const existing = winners.get(key);
     if (
       !existing ||

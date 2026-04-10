@@ -34,7 +34,8 @@ export function layoutAtoms(rawAtoms: RawAtom[]): WordAtom[] {
     if (words.length === 0) continue;
 
     const containerX = containerGeom.x;
-    const containerY = containerGeom.y;
+    // containerGeom.y is viewport-relative; add scrollOffset to get absolute y.
+    const containerY = containerGeom.y + (el.scrollOffset ?? 0);
     const containerW = containerGeom.w;
 
     let cursorX = 0; // relative to container left
